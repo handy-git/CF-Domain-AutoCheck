@@ -1,6 +1,6 @@
 /*
  * 域名监控系统 - Cloudflare Workers
- * 使用KV存储域名信息，支持Telegram通知
+ * 使用KV存储域名信息，支持HTML邮件通知
  * 功能：域名到期监控、自动通知、域名管理
  */
 
@@ -20,9 +20,10 @@ const DEFAULT_MOBILE_BACKGROUND = 'https://cdn.jsdelivr.net/gh/kamanfaiz/CF-Doma
 // 登录密码设置
 const DEFAULT_TOKEN = ''; // 默认密码，留空则使用'domain'，外置变量为TOKEN
 
-// Telegram通知配置
-const DEFAULT_TG_TOKEN = ''; // Telegram机器人Token，外置变量为TG_TOKEN
-const DEFAULT_TG_ID = '';    // Telegram聊天ID，外置变量为TG_ID
+// 邮件通知配置（Resend）
+const DEFAULT_MAIL_API_KEY = ''; // Resend API Key，外置变量为MAIL_API_KEY
+const DEFAULT_MAIL_TO = '';      // 收件人邮箱，外置变量为MAIL_TO
+const DEFAULT_MAIL_FROM = 'onboarding@resend.dev'; // 发件人邮箱，外置变量为MAIL_FROM（可选，未配置默认用Resend测试发件人）
 
 // 网站标题配置
 const DEFAULT_SITE_NAME = ''; // 默认网站标题，外置变量为SITE_NAME
@@ -932,7 +933,7 @@ const getHTMLContent = (title) => `
         }
         
         /* 自定义测试成功消息的颜色 */
-        .telegram-test-success {
+        .mail-test-success {
             color:rgb(19, 221, 144) !important; /* 紫色 */
             font-weight: 500;
         }
@@ -2097,29 +2098,24 @@ const getHTMLContent = (title) => `
                 </div>
                 <div class="modal-body">
                     <form id="settingsForm">
-                        <h6 class="mb-3" style="display: flex; align-items: center; gap: 5px;"><i class="iconfont icon-telegram" style="color: white;"></i> Telegram通知设置</h6>
+                        <h6 class="mb-3" style="display: flex; align-items: center; gap: 5px;"><i class="iconfont icon-lingdang" style="color: white;"></i> 邮件通知设置</h6>
                         <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="telegramEnabled">
-                            <label class="form-check-label" for="telegramEnabled">启用Telegram通知</label>
+                            <input type="checkbox" class="form-check-input" id="mailEnabled">
+                            <label class="form-check-label" for="mailEnabled">启用邮件通知</label>
                         </div>
-                        <div id="telegramSettings" style="display: none;">
+                        <div id="mailSettings" style="display: none;">
                             <div class="mb-3">
-                                <label for="telegramToken" class="form-label"><i class="iconfont icon-key"></i> 机器人Token</label>
-                                <input type="text" class="form-control" id="telegramToken" placeholder="如已在环境变量中配置则可留空">
-                                <div class="form-text">在Telegram中找到@BotFather创建机器人并获取Token</div>
+                                <label for="mailToDisplay" class="form-label">收件邮箱</label>
+                                <input type="text" class="form-control" id="mailToDisplay" readonly>
+                                <div class="form-text">收件邮箱由环境变量 MAIL_TO 配置，未配置时请在 Cloudflare 后台添加</div>
                             </div>
                             <div class="mb-3">
-                                <label for="telegramChatId" class="form-label"><i class="iconfont icon-robot-2-fill"></i> 聊天ID</label>
-                                <input type="text" class="form-control" id="telegramChatId" placeholder="如已在环境变量中配置则可留空">
-                                <div class="form-text">可以使用@userinfobot获取个人ID，或将机器人添加到群组后获取群组ID</div>
-                            </div>
-                            <div class="mb-3">
-                                <label for="notifyDays" class="form-label"><i class="iconfont icon-lingdang"></i> 提前通知天数</label>
+                                <label for="notifyDays" class="form-label">提前通知天数</label>
                                 <input type="number" class="form-control" id="notifyDays" min="1" max="90" value="30">
                                 <div class="form-text">域名到期前多少天开始发送通知</div>
                             </div>
                             <div class="mb-3">
-                                <button type="button" class="btn btn-info" id="testTelegramBtn"><i class="iconfont icon-paper-plane" style="color: white;"></i> <span style="color: white;">测试Telegram通知</span></button>
+                                <button type="button" class="btn btn-info" id="testMailBtn"><i class="iconfont icon-paper-plane" style="color: white;"></i> <span style="color: white;">测试邮件通知</span></button>
                                 <span id="testResult" class="ms-2"></span>
                             </div>
                         </div>
@@ -2220,7 +2216,7 @@ const getHTMLContent = (title) => `
         let domains = [];
         let currentDomainId = null;
         let currentCategoryId = null;
-        let telegramConfig = {};
+        let mailConfig = {};
         let currentSortField = 'suffix'; // 默认排序字段改为域名后缀
         let currentSortOrder = 'asc'; // 默认排序顺序
         let viewMode = 'auto-collapse'; // 默认查看模式：auto-collapse (自动折叠), expand-all (全部展开), collapse-all (全部折叠)
@@ -2268,7 +2264,7 @@ const getHTMLContent = (title) => `
             // 确保DOM元素已完全加载
             setTimeout(() => {
                 // 使用Promise.all并行加载数据
-                Promise.all([loadDomains(), loadCategories(), loadTelegramConfig()])
+                Promise.all([loadDomains(), loadCategories(), loadMailConfig()])
                     .catch(error => showAlert('danger', '数据加载失败: ' + error.message));
             }, 300);
             
@@ -2465,16 +2461,16 @@ const getHTMLContent = (title) => `
             document.getElementById('renewCycleValue').addEventListener('input', calculateExpiryDate);
             document.getElementById('renewCycleUnit').addEventListener('change', calculateExpiryDate);
             
-            // Telegram启用状态变化
-            document.getElementById('telegramEnabled').addEventListener('change', function() {
-                document.getElementById('telegramSettings').style.display = this.checked ? 'block' : 'none';
+            // 邮件启用状态变化
+            document.getElementById('mailEnabled').addEventListener('change', function() {
+                document.getElementById('mailSettings').style.display = this.checked ? 'block' : 'none';
             });
             
             // 保存设置按钮
             document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
             
-            // 测试Telegram按钮
-            document.getElementById('testTelegramBtn').addEventListener('click', testTelegram);
+            // 测试邮件按钮
+            document.getElementById('testMailBtn').addEventListener('click', testMail);
             
             // 域名通知设置 - 全局/自定义切换
             document.getElementById('useGlobalSettings').addEventListener('change', function() {
@@ -2833,65 +2829,44 @@ const getHTMLContent = (title) => `
             '</div>';
         }
         
-        // 加载Telegram配置
-        async function loadTelegramConfig() {
+        // 加载邮件配置
+        async function loadMailConfig() {
             try {
-                const response = await fetch('/api/telegram/config');
-                if (!response.ok) throw new Error('获取Telegram配置失败');
+                const response = await fetch('/api/mail/config');
+                if (!response.ok) throw new Error('获取邮件配置失败');
                 
-                telegramConfig = await response.json();
+                mailConfig = await response.json();
                 
                 // 更新表单
-                document.getElementById('telegramEnabled').checked = telegramConfig.enabled;
-                document.getElementById('telegramSettings').style.display = telegramConfig.enabled ? 'block' : 'none';
-                document.getElementById('notifyDays').value = telegramConfig.notifyDays || 30;
+                document.getElementById('mailEnabled').checked = mailConfig.enabled;
+                document.getElementById('mailSettings').style.display = mailConfig.enabled ? 'block' : 'none';
+                document.getElementById('notifyDays').value = mailConfig.notifyDays || 30;
                 
-                // 处理聊天ID的显示
-                if (telegramConfig.chatIdFromEnv) {
-                    // 如果聊天ID来自环境变量，显示固定文本
-                    document.getElementById('telegramChatId').value = '';
-                    document.getElementById('telegramChatId').placeholder = '已通过环境变量配置';
-                    document.getElementById('telegramChatId').disabled = false; // 允许用户编辑
+                // 显示收件邮箱（由环境变量配置，只读展示）
+                const mailToDisplay = document.getElementById('mailToDisplay');
+                if (mailConfig.mailTo) {
+                    mailToDisplay.value = mailConfig.mailTo;
+                    mailToDisplay.placeholder = '已通过环境变量配置';
                 } else {
-                    // 显示用户设置的聊天ID
-                    document.getElementById('telegramChatId').value = telegramConfig.chatId || '';
-                    document.getElementById('telegramChatId').placeholder = '如已在环境变量中配置则可留空';
-                    document.getElementById('telegramChatId').disabled = false;
-                }
-                
-                // 处理Token的显示
-                if (telegramConfig.tokenFromEnv) {
-                    // 如果Token来自环境变量，显示固定文本
-                    document.getElementById('telegramToken').value = '';
-                    document.getElementById('telegramToken').placeholder = '已通过环境变量配置';
-                    document.getElementById('telegramToken').disabled = false; // 允许用户编辑
-                } else {
-                    // 显示用户设置的Token
-                    document.getElementById('telegramToken').value = telegramConfig.botToken || '';
-                    document.getElementById('telegramToken').placeholder = '如已在环境变量中配置则可留空';
-                    document.getElementById('telegramToken').disabled = false;
+                    mailToDisplay.value = '';
+                    mailToDisplay.placeholder = '未配置，请在 Cloudflare 后台设置 MAIL_TO';
                 }
             } catch (error) {
-                // 忽略Telegram配置加载失败
+                // 忽略邮件配置加载失败
             }
         }
         
         // 保存设置
         async function saveSettings() {
-            const enabled = document.getElementById('telegramEnabled').checked;
-            // 获取表单值，即使是空字符串也保留
-            const botToken = document.getElementById('telegramToken').value;
-            const chatId = document.getElementById('telegramChatId').value;
+            const enabled = document.getElementById('mailEnabled').checked;
             const notifyDays = parseInt(document.getElementById('notifyDays').value) || 30;
             
             try {
-                const response = await fetch('/api/telegram/config', {
+                const response = await fetch('/api/mail/config', {
                     headers: { 'Content-Type': 'application/json' },
                     method: 'POST',
                     body: JSON.stringify({
                         enabled,
-                        botToken,
-                        chatId,
                         notifyDays
                     })
                 });
@@ -2906,7 +2881,7 @@ const getHTMLContent = (title) => `
                     }
                 }
                 
-                telegramConfig = await response.json();
+                mailConfig = await response.json();
                 showAlert('success', '设置保存成功');
                 
                 // 关闭模态框
@@ -2916,14 +2891,14 @@ const getHTMLContent = (title) => `
             }
         }
         
-        // 测试Telegram通知
-        async function testTelegram() {
+        // 测试邮件通知
+        async function testMail() {
             const testResult = document.getElementById('testResult');
             testResult.textContent = '发送中...';
             testResult.className = 'ms-2 text-info';
             
             try {
-                const response = await fetch('/api/telegram/test', {
+                const response = await fetch('/api/mail/test', {
                     method: 'POST'
                 });
                 
@@ -2933,8 +2908,8 @@ const getHTMLContent = (title) => `
                 }
                 
                 const result = await response.json();
-                testResult.textContent = '测试成功！请检查Telegram是否收到消息';
-                testResult.className = 'ms-2 telegram-test-success';
+                testResult.textContent = '测试成功！请检查邮箱是否收到邮件';
+                testResult.className = 'ms-2 mail-test-success';
             } catch (error) {
                 testResult.textContent = '测试失败: ' + error.message;
                 testResult.className = 'ms-2 text-danger';
@@ -2965,7 +2940,7 @@ const getHTMLContent = (title) => `
             domainListContainer.innerHTML = '';
             
             // 获取全局通知设置
-            const globalNotifyDays = telegramConfig.notifyDays || 30;
+            const globalNotifyDays = mailConfig.notifyDays || 30;
             
             // 计算每个域名的剩余天数
             domains.forEach(domain => {
@@ -4470,7 +4445,7 @@ const getHTMLContent = (title) => `
                         }
                         
                         const result = await response.json();
-                        showAlert('success', '通知测试成功！请检查Telegram是否收到消息');
+                        showAlert('success', '通知测试成功！请检查邮箱是否收到邮件');
                     } catch (error) {
                         showAlert('danger', '测试通知失败: ' + error.message);
                     }
@@ -4510,8 +4485,8 @@ const getHTMLContent = (title) => `
                             case 'notifyDays':
                                 const notifySettingsA = a.notifySettings || { useGlobalSettings: true, notifyDays: 30 };
                                 const notifySettingsB = b.notifySettings || { useGlobalSettings: true, notifyDays: 30 };
-                                valueA = notifySettingsA.useGlobalSettings ? (telegramConfig.notifyDays || 30) : notifySettingsA.notifyDays;
-                                valueB = notifySettingsB.useGlobalSettings ? (telegramConfig.notifyDays || 30) : notifySettingsB.notifyDays;
+                                valueA = notifySettingsA.useGlobalSettings ? (mailConfig.notifyDays || 30) : notifySettingsA.notifyDays;
+                                valueB = notifySettingsB.useGlobalSettings ? (mailConfig.notifyDays || 30) : notifySettingsB.notifyDays;
                                 break;
                             default:
                                 valueA = a.daysLeft;
@@ -4744,34 +4719,34 @@ async function handleApiRequest(request) {
     }
   }
   
-  // 获取Telegram配置
-  if (path === '/api/telegram/config' && request.method === 'GET') {
+  // 获取邮件配置
+  if (path === '/api/mail/config' && request.method === 'GET') {
     try {
-      const config = await getTelegramConfig();
+      const config = await getMailConfig();
       return jsonResponse(config);
     } catch (error) {
-      return jsonResponse({ error: '获取Telegram配置失败' }, 500);
+      return jsonResponse({ error: '获取邮件配置失败' }, 500);
     }
   }
   
-  // 保存Telegram配置
-  if (path === '/api/telegram/config' && request.method === 'POST') {
+  // 保存邮件配置
+  if (path === '/api/mail/config' && request.method === 'POST') {
     try {
       const configData = await request.json();
-      const config = await saveTelegramConfig(configData);
+      const config = await saveMailConfig(configData);
       return jsonResponse(config);
     } catch (error) {
-      return jsonResponse({ error: '保存Telegram配置失败: ' + error.message }, 400);
+      return jsonResponse({ error: '保存邮件配置失败: ' + error.message }, 400);
     }
   }
   
-  // 测试Telegram通知
-  if (path === '/api/telegram/test' && request.method === 'POST') {
+  // 测试邮件通知
+  if (path === '/api/mail/test' && request.method === 'POST') {
     try {
-      const result = await testTelegramNotification();
+      const result = await testMailNotification();
       return jsonResponse(result);
     } catch (error) {
-      return jsonResponse({ error: '测试Telegram通知失败: ' + error.message }, 400);
+      return jsonResponse({ error: '测试邮件通知失败: ' + error.message }, 400);
     }
   }
 
@@ -5148,187 +5123,87 @@ async function renewDomain(id, renewData) {
   return domains[index];
 }
 
-// 获取Telegram配置
-async function getTelegramConfig() {
-  const configStr = await DOMAIN_MONITOR.get('telegram_config') || '{}';
+// 获取邮件配置
+async function getMailConfig() {
+  const configStr = await DOMAIN_MONITOR.get('mail_config') || '{}';
   const config = JSON.parse(configStr);
   
-  // 检查是否使用环境变量
-  // 当环境变量存在且配置中的值为undefined、null或空字符串时，视为使用环境变量
-  const tokenFromEnv = typeof TG_TOKEN !== 'undefined' && (
-    config.botToken === undefined || 
-    config.botToken === null || 
-    config.botToken === ''
-  );
+  // 检查环境变量中是否配置了邮箱相关参数
+  const mailToFromEnv = typeof MAIL_TO !== 'undefined' && MAIL_TO !== '';
+  const apiKeyFromEnv = typeof MAIL_API_KEY !== 'undefined' && MAIL_API_KEY !== '';
   
-  const chatIdFromEnv = typeof TG_ID !== 'undefined' && (
-    config.chatId === undefined || 
-    config.chatId === null || 
-    config.chatId === ''
-  );
-  
-  // 检查是否使用代码中定义的变量
-  const tokenFromCode = !tokenFromEnv && DEFAULT_TG_TOKEN !== '' && (
-    config.botToken === undefined || 
-    config.botToken === null || 
-    config.botToken === ''
-  );
-  
-  const chatIdFromCode = !chatIdFromEnv && DEFAULT_TG_ID !== '' && (
-    config.chatId === undefined || 
-    config.chatId === null || 
-    config.chatId === ''
-  );
-  
-  // 返回完整的配置信息，包括token和chatId
   return {
     enabled: !!config.enabled,
-    chatId: chatIdFromEnv || chatIdFromCode ? '' : (config.chatId || ''),
-    botToken: tokenFromEnv || tokenFromCode ? '' : (config.botToken || ''), // 如果有环境变量或代码变量，则返回空字符串
-    chatIdFromEnv: chatIdFromEnv || chatIdFromCode, // 环境变量或代码中有设置都显示为已配置
-    tokenFromEnv: tokenFromEnv || tokenFromCode, // 环境变量或代码中有设置都显示为已配置
-    hasToken: tokenFromEnv || tokenFromCode || (config.botToken !== undefined && config.botToken !== null && config.botToken !== ''),
+    mailTo: (mailToFromEnv ? MAIL_TO : DEFAULT_MAIL_TO) || '',
+    mailToFromEnv: mailToFromEnv || DEFAULT_MAIL_TO !== '',
+    hasApiKey: apiKeyFromEnv || DEFAULT_MAIL_API_KEY !== '',
+    hasMailTo: mailToFromEnv || DEFAULT_MAIL_TO !== '',
     notifyDays: config.notifyDays || 30,
   };
 }
 
-// 保存Telegram配置
-async function saveTelegramConfig(configData) {
-  // 验证必要的配置 - 只有当启用Telegram通知且环境变量中也没有配置时才需要验证
+// 保存邮件配置
+async function saveMailConfig(configData) {
+  // 验证必要的配置 - 只有当启用邮件通知且环境变量中也没有配置时才需要验证
   if (configData.enabled) {
-    // 检查是否可以使用环境变量或用户输入的值
-    // 注意：空字符串("")被视为有效的清除操作，不应该抛出错误
-    const hasTokenSource = (configData.botToken !== undefined && configData.botToken !== null) || 
-                          typeof TG_TOKEN !== 'undefined' || 
-                          DEFAULT_TG_TOKEN !== '';
-    const hasChatIdSource = (configData.chatId !== undefined && configData.chatId !== null) || 
-                           typeof TG_ID !== 'undefined' || 
-                           DEFAULT_TG_ID !== '';
+    const hasApiKeySource = typeof MAIL_API_KEY !== 'undefined' || DEFAULT_MAIL_API_KEY !== '';
+    const hasMailToSource = typeof MAIL_TO !== 'undefined' || DEFAULT_MAIL_TO !== '';
     
-    if (!hasTokenSource) {
-      throw new Error('启用Telegram通知需要提供机器人Token或在环境变量中配置');
+    if (!hasApiKeySource) {
+      throw new Error('启用邮件通知需要配置 MAIL_API_KEY 环境变量');
     }
-    if (!hasChatIdSource) {
-      throw new Error('启用Telegram通知需要提供聊天ID或在环境变量中配置');
+    if (!hasMailToSource) {
+      throw new Error('启用邮件通知需要配置 MAIL_TO 环境变量');
     }
   }
   
-  // 保存配置到KV - 即使值为空也保存，表示用户有意清除值
+  // 保存配置到KV
   const config = {
     enabled: !!configData.enabled,
-    botToken: configData.botToken, // 可能为空字符串，表示用户清除了值
-    chatId: configData.chatId, // 可能为空字符串，表示用户清除了值
     notifyDays: configData.notifyDays || 30,
   };
   
-  await DOMAIN_MONITOR.put('telegram_config', JSON.stringify(config));
+  await DOMAIN_MONITOR.put('mail_config', JSON.stringify(config));
   
-  // 检查是否使用环境变量
-  // 当环境变量存在且配置中的值为undefined、null或空字符串时，视为使用环境变量
-  const tokenFromEnv = typeof TG_TOKEN !== 'undefined' && (
-    config.botToken === undefined || 
-    config.botToken === null || 
-    config.botToken === ''
-  );
-  
-  const chatIdFromEnv = typeof TG_ID !== 'undefined' && (
-    config.chatId === undefined || 
-    config.chatId === null || 
-    config.chatId === ''
-  );
-  
-  // 检查是否使用代码中定义的变量
-  const tokenFromCode = !tokenFromEnv && DEFAULT_TG_TOKEN !== '' && (
-    config.botToken === undefined || 
-    config.botToken === null || 
-    config.botToken === ''
-  );
-  
-  const chatIdFromCode = !chatIdFromEnv && DEFAULT_TG_ID !== '' && (
-    config.chatId === undefined || 
-    config.chatId === null || 
-    config.chatId === ''
-  );
-  
-  // 返回完整的配置信息，包括token和chatId
-  return {
-    enabled: config.enabled,
-    chatId: chatIdFromEnv || chatIdFromCode ? '' : (config.chatId || ''),
-    botToken: tokenFromEnv || tokenFromCode ? '' : (config.botToken || ''), // 如果有环境变量或代码变量，则返回空字符串
-    chatIdFromEnv: chatIdFromEnv || chatIdFromCode, // 环境变量或代码中有设置都显示为已配置
-    tokenFromEnv: tokenFromEnv || tokenFromCode, // 环境变量或代码中有设置都显示为已配置
-    hasToken: tokenFromEnv || tokenFromCode || !!config.botToken,
-    notifyDays: config.notifyDays,
-  };
+  return getMailConfig();
 }
 
-// 测试Telegram通知
-async function testTelegramNotification() {
-  const config = await getTelegramConfigWithToken();
+// 测试邮件通知
+async function testMailNotification() {
+  const config = await getMailConfigWithToken();
   
   if (!config.enabled) {
-    throw new Error('Telegram通知未启用');
+    throw new Error('邮件通知未启用');
   }
   
-  if (!config.botToken && typeof TG_TOKEN === 'undefined' && DEFAULT_TG_TOKEN === '') {
-    throw new Error('未配置Telegram机器人Token');
+  if (!config.apiKey) {
+    throw new Error('未配置 MAIL_API_KEY 环境变量');
   }
   
-  if (!config.chatId && typeof TG_ID === 'undefined' && DEFAULT_TG_ID === '') {
-    throw new Error('未配置Telegram聊天ID');
+  if (!config.mailTo) {
+    throw new Error('未配置 MAIL_TO 环境变量');
   }
   
-  const message = '这是一条来自域名监控系统的测试通知，如果您收到此消息，表示Telegram通知配置成功！';
-  
-  const result = await sendTelegramMessage(config, message);
-  return { success: true, message: '测试通知已发送' };
+  const html = buildTestMailHtml();
+  await sendMail(config, '域名监控系统测试通知', html);
+  return { success: true, message: '测试邮件已发送' };
 }
 
-// 获取完整的Telegram配置（包括token）
-async function getTelegramConfigWithToken() {
-  const configStr = await DOMAIN_MONITOR.get('telegram_config') || '{}';
+// 获取完整的邮件配置（包括API Key）
+async function getMailConfigWithToken() {
+  const configStr = await DOMAIN_MONITOR.get('mail_config') || '{}';
   const config = JSON.parse(configStr);
   
-  // 如果KV中没有token或chatId，或者是空字符串，但环境变量中有值，则使用环境变量中的值
-  if (typeof TG_TOKEN !== 'undefined' && (
-      config.botToken === undefined || 
-      config.botToken === null || 
-      config.botToken === ''
-  )) {
-    config.botToken = TG_TOKEN;
-  }
-  
-  // 同样处理chatId
-  if (typeof TG_ID !== 'undefined' && (
-      config.chatId === undefined || 
-      config.chatId === null || 
-      config.chatId === ''
-  )) {
-    config.chatId = TG_ID;
-  }
-  
-  // 如果环境变量中没有，但代码中有，则使用代码中的值
-  else if (DEFAULT_TG_TOKEN !== '' && (
-      config.botToken === undefined || 
-      config.botToken === null || 
-      config.botToken === ''
-  )) {
-    config.botToken = DEFAULT_TG_TOKEN;
-  }
-  
-  // 如果环境变量中没有，但代码中有，则使用代码中的值
-  else if (DEFAULT_TG_ID !== '' && (
-      config.chatId === undefined || 
-      config.chatId === null || 
-      config.chatId === ''
-  )) {
-    config.chatId = DEFAULT_TG_ID;
-  }
+  // 环境变量优先，其次代码中的默认值
+  config.apiKey = (typeof MAIL_API_KEY !== 'undefined' && MAIL_API_KEY !== '') ? MAIL_API_KEY : DEFAULT_MAIL_API_KEY;
+  config.mailTo = (typeof MAIL_TO !== 'undefined' && MAIL_TO !== '') ? MAIL_TO : DEFAULT_MAIL_TO;
+  config.mailFrom = (typeof MAIL_FROM !== 'undefined' && MAIL_FROM !== '') ? MAIL_FROM : DEFAULT_MAIL_FROM;
   
   return {
     enabled: !!config.enabled,
-    botToken: config.botToken || '',
-    chatId: config.chatId || '',
+    apiKey: config.apiKey || '',
+    mailTo: config.mailTo || '',
+    mailFrom: config.mailFrom || '',
     notifyDays: config.notifyDays || 30,
   };
 }
@@ -5511,57 +5386,193 @@ async function moveCategoryOrder(id, direction) {
 
 // ================================
 
-// 发送Telegram消息
-async function sendTelegramMessage(config, message) {
+// HTML转义工具函数
+function escapeHtml(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// 发送HTML邮件（通过Resend API）
+async function sendMail(config, subject, html) {
   // 优先使用配置中的值，如果没有则使用环境变量或代码中的值
-  let botToken = config.botToken;
-  let chatId = config.chatId;
+  let apiKey = config.apiKey;
+  let mailTo = config.mailTo;
+  let mailFrom = config.mailFrom;
   
   // 如果配置中没有值，检查环境变量
-  if (!botToken) {
-    if (typeof TG_TOKEN !== 'undefined') {
-      botToken = TG_TOKEN;
-    } else if (DEFAULT_TG_TOKEN !== '') {
-      botToken = DEFAULT_TG_TOKEN;
-    }
+  if (!apiKey) {
+    apiKey = (typeof MAIL_API_KEY !== 'undefined' && MAIL_API_KEY !== '') ? MAIL_API_KEY : DEFAULT_MAIL_API_KEY;
   }
   
-  if (!chatId) {
-    if (typeof TG_ID !== 'undefined') {
-      chatId = TG_ID;
-    } else if (DEFAULT_TG_ID !== '') {
-      chatId = DEFAULT_TG_ID;
-    }
+  if (!mailTo) {
+    mailTo = (typeof MAIL_TO !== 'undefined' && MAIL_TO !== '') ? MAIL_TO : DEFAULT_MAIL_TO;
   }
   
-  if (!botToken) {
-    throw new Error('未配置Telegram机器人Token');
+  if (!mailFrom) {
+    mailFrom = (typeof MAIL_FROM !== 'undefined' && MAIL_FROM !== '') ? MAIL_FROM : DEFAULT_MAIL_FROM;
   }
   
-  if (!chatId) {
-    throw new Error('未配置Telegram聊天ID');
+  if (!apiKey) {
+    throw new Error('未配置 MAIL_API_KEY 环境变量');
   }
   
-  const url = 'https://api.telegram.org/bot' + botToken + '/sendMessage';
+  if (!mailTo) {
+    throw new Error('未配置 MAIL_TO 环境变量');
+  }
   
-  const response = await fetch(url, {
+  const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey,
     },
     body: JSON.stringify({
-      chat_id: chatId,
-      text: message,
-      parse_mode: 'HTML',
+      from: '域名监控 <' + mailFrom + '>',
+      to: [mailTo],
+      subject: subject,
+      html: html,
     }),
   });
   
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error('发送Telegram消息失败: ' + (error.description || '未知错误'));
+    let errorMessage = '未知错误';
+    try {
+      const error = await response.json();
+      errorMessage = error.message || (error.error && error.error.message) || errorMessage;
+    } catch (e) {
+      // 忽略解析错误
+    }
+    throw new Error('发送邮件失败: ' + errorMessage);
   }
   
   return await response.json();
+}
+
+// 构建单个域名的邮件卡片HTML
+function buildDomainRow(domain, isExpired) {
+  const expiryDate = new Date(domain.expiryDate);
+  const today = new Date();
+  const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+  
+  // 徽章颜色：已过期或7天内红色，其余橙色
+  const badgeColor = (isExpired || daysLeft <= 7) ? '#E24B4A' : '#EF9F27';
+  const badgeText = isExpired ? '已过期' : (daysLeft + ' 天后到期');
+  const titleColor = isExpired ? '#A32D2D' : '#1f2937';
+  
+  const renewLink = domain.renewLink
+    ? '<a href="' + escapeHtml(domain.renewLink) + '" style="display:inline-block;background-color:#185FA5;color:#ffffff;text-decoration:none;font-size:12px;font-weight:500;padding:8px 16px;border-radius:8px;">立即续期</a>'
+    : '<span style="display:inline-block;background-color:#f1f2f4;color:#6b7280;font-size:12px;padding:8px 16px;border-radius:8px;">未设置续期链接</span>';
+  
+  return '' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border:1px solid #e8eaee;border-radius:12px;margin-bottom:12px;">' +
+      '<tr><td style="padding:16px 20px;">' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">' +
+          '<tr>' +
+            '<td><div style="font-size:15px;font-weight:600;color:' + titleColor + ';">' + escapeHtml(domain.name) + '</div>' +
+            (domain.registrar ? '<div style="font-size:12px;color:#9ca3af;margin-top:2px;">' + escapeHtml(domain.registrar) + '</div>' : '') + '</td>' +
+            '<td align="right"><span style="display:inline-block;background-color:' + badgeColor + ';color:#ffffff;font-size:12px;font-weight:500;padding:4px 12px;border-radius:999px;">' + badgeText + '</span></td>' +
+          '</tr>' +
+          '<tr><td colspan="2" style="padding-top:12px;border-top:1px dashed #eef0f3;">' +
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">' +
+              '<tr>' +
+                '<td style="font-size:12px;color:#6b7280;">到期日期：<span style="font-weight:500;color:#1f2937;">' + formatDate(domain.expiryDate) + '</span></td>' +
+                '<td align="right">' + renewLink + '</td>' +
+              '</tr>' +
+            '</table>' +
+          '</td></tr>' +
+        '</table>' +
+      '</td></tr>' +
+    '</table>';
+}
+
+// 构建HTML邮件正文
+function buildMailHtml(expiringDomains, expiredDomains) {
+  const siteName = (typeof SITE_NAME !== 'undefined' && SITE_NAME) ? SITE_NAME : '域名到期监控';
+  const now = new Date();
+  const dateStr = now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日';
+  
+  let rowsHtml = '';
+  expiringDomains.forEach(domain => { rowsHtml += buildDomainRow(domain, false); });
+  expiredDomains.forEach(domain => { rowsHtml += buildDomainRow(domain, true); });
+  
+  const emptyHtml = '<div style="text-align:center;font-size:13px;color:#9ca3af;padding:20px 0;">暂无域名到期提醒</div>';
+  
+  return '' +
+    '<!DOCTYPE html><html><head><meta charset="utf-8"></head>' +
+    '<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',\'PingFang SC\',\'Hiragino Sans GB\',\'Microsoft YaHei\',sans-serif;">' +
+      '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;padding:24px 12px;">' +
+        '<tr><td align="center">' +
+          '<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e8eaee;">' +
+            '<tr><td style="background-color:#1f2937;padding:28px 32px;">' +
+              '<div style="font-size:22px;font-weight:600;color:#ffffff;letter-spacing:1px;">🌍 ' + escapeHtml(siteName) + '</div>' +
+              '<div style="font-size:13px;color:#9ca3af;margin-top:4px;">' + dateStr + ' · 域名到期监控日报</div>' +
+            '</td></tr>' +
+            '<tr><td style="padding:24px 32px 8px 32px;">' +
+              '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">' +
+                '<tr>' +
+                  '<td style="width:50%;padding-right:8px;">' +
+                    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FCF3E3;border-radius:12px;border:1px solid #FAC775;">' +
+                      '<tr><td style="padding:14px 16px;">' +
+                        '<div style="font-size:26px;font-weight:600;color:#BA7517;">' + expiringDomains.length + '</div>' +
+                        '<div style="font-size:12px;color:#854F0B;margin-top:2px;">即将到期域名</div>' +
+                      '</td></tr>' +
+                    '</table>' +
+                  '</td>' +
+                  '<td style="width:50%;padding-left:8px;">' +
+                    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FCEBEB;border-radius:12px;border:1px solid #F09595;">' +
+                      '<tr><td style="padding:14px 16px;">' +
+                        '<div style="font-size:26px;font-weight:600;color:#A32D2D;">' + expiredDomains.length + '</div>' +
+                        '<div style="font-size:12px;color:#791F1F;margin-top:2px;">已过期域名</div>' +
+                      '</td></tr>' +
+                    '</table>' +
+                  '</td>' +
+                '</tr>' +
+              '</table>' +
+            '</td></tr>' +
+            '<tr><td style="padding:16px 32px 24px 32px;">' + (rowsHtml || emptyHtml) + '</td></tr>' +
+            '<tr><td style="background-color:#fafbfc;padding:16px 32px;border-top:1px solid #eef0f3;">' +
+              '<div style="font-size:12px;color:#9ca3af;">本邮件由 ' + escapeHtml(siteName) + ' 自动发送，无需回复。</div>' +
+            '</td></tr>' +
+          '</table>' +
+        '</td></tr>' +
+      '</table>' +
+    '</body></html>';
+}
+
+// 构建测试邮件HTML
+function buildTestMailHtml() {
+  const siteName = (typeof SITE_NAME !== 'undefined' && SITE_NAME) ? SITE_NAME : '域名到期监控';
+  const now = new Date();
+  const dateStr = now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日';
+  
+  return '' +
+    '<!DOCTYPE html><html><head><meta charset="utf-8"></head>' +
+    '<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',\'PingFang SC\',\'Hiragino Sans GB\',\'Microsoft YaHei\',sans-serif;">' +
+      '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;padding:24px 12px;">' +
+        '<tr><td align="center">' +
+          '<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e8eaee;">' +
+            '<tr><td style="background-color:#1f2937;padding:28px 32px;">' +
+              '<div style="font-size:22px;font-weight:600;color:#ffffff;letter-spacing:1px;">🌍 ' + escapeHtml(siteName) + '</div>' +
+              '<div style="font-size:13px;color:#9ca3af;margin-top:4px;">' + dateStr + ' · 通知测试</div>' +
+            '</td></tr>' +
+            '<tr><td style="padding:24px 32px;">' +
+              '<div style="font-size:15px;font-weight:600;color:#1f2937;">✅ 邮件通知配置成功</div>' +
+              '<div style="font-size:13px;color:#6b7280;margin-top:8px;line-height:1.6;">这是一条来自域名监控系统的测试通知。收到此邮件说明 Resend API Key、收件人与发件人配置均正常，后续域名到期提醒将以本邮件的样式发送。</div>' +
+            '</td></tr>' +
+            '<tr><td style="background-color:#fafbfc;padding:16px 32px;border-top:1px solid #eef0f3;">' +
+              '<div style="font-size:12px;color:#9ca3af;">本邮件由 ' + escapeHtml(siteName) + ' 自动发送，无需回复。</div>' +
+            '</td></tr>' +
+          '</table>' +
+        '</td></tr>' +
+      '</table>' +
+    '</body></html>';
+}
+
+// 构建邮件主题
+function buildMailSubject(expiringCount, expiredCount) {
+  const parts = [];
+  if (expiringCount > 0) parts.push(expiringCount + '个域名即将到期');
+  if (expiredCount > 0) parts.push(expiredCount + '个域名已过期');
+  return '【域名到期提醒】' + parts.join('，');
 }
 
 // 设置定时任务，检查即将到期的域名并发送通知
@@ -5569,9 +5580,9 @@ async function checkExpiringDomains() {
   const domains = await getDomains();
   const today = new Date();
   
-  // 获取Telegram配置
-  const telegramConfig = await getTelegramConfigWithToken();
-  const globalNotifyDays = telegramConfig.enabled ? telegramConfig.notifyDays : 30;
+  // 获取邮件配置
+  const mailConfig = await getMailConfigWithToken();
+  const globalNotifyDays = mailConfig.enabled ? mailConfig.notifyDays : 30;
   
   // 筛选出即将到期和已过期的域名
   const domainsToNotify = domains.filter(domain => {
@@ -5607,144 +5618,47 @@ async function checkExpiringDomains() {
   // 如果有即将到期或已过期的域名，发送通知
   if (expiringDomains.length > 0 || expiredDomains.length > 0) {
     
-    // 如果启用了Telegram通知，则发送通知
-    if (telegramConfig.enabled && 
-        ((telegramConfig.botToken || typeof TG_TOKEN !== 'undefined') && 
-         (telegramConfig.chatId || typeof TG_ID !== 'undefined'))) {
+    // 如果启用了邮件通知，则发送HTML邮件
+    if (mailConfig.enabled && mailConfig.apiKey && mailConfig.mailTo) {
       try {
-        // 发送合并的域名通知
-        await sendCombinedDomainsNotification(telegramConfig, expiringDomains, expiredDomains);
+        const subject = buildMailSubject(expiringDomains.length, expiredDomains.length);
+        const html = buildMailHtml(expiringDomains, expiredDomains);
+        await sendMail(mailConfig, subject, html);
       } catch (error) {
-        // 静默处理Telegram通知发送失败
+        // 静默处理邮件通知发送失败
       }
     }
   }
 }
 
-// 发送域名通知（即将到期或已过期）
-async function sendExpiringDomainsNotification(config, domains, isExpired) {
-  if (domains.length === 0) return;
+// 构建单个域名的测试通知HTML
+function buildSingleDomainTestHtml(domain, isExpired) {
+  const siteName = (typeof SITE_NAME !== 'undefined' && SITE_NAME) ? SITE_NAME : '域名到期监控';
   
-  // 构建消息内容
-  let title = isExpired ? 
-    '🚫 <b>域名已过期提醒</b> 🚫' : 
-    '🚨 <b>域名到期提醒</b> 🚨';
-  
-  // 根据不同通知类型使用不同长度的等号分隔线
-  // 域名到期提醒使用19个字符，域名已过期提醒使用21个字符
-  const separator = isExpired ? 
-    '=====================' : 
-    '===================';
-  // 域名之间的短横线分隔符统一使用40个字符
-  const domainSeparator = '----------------------------------------';
-  
-  let message = title + '\n' + separator + '\n\n';
-  
-  domains.forEach((domain, index) => {
-    const expiryDate = new Date(domain.expiryDate);
-    const today = new Date();
-    const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-    
-    if (index > 0) {
-      message += '\n' + domainSeparator + '\n\n';
-    }
-    
-    message += '🌍 <b>域名:</b> ' + domain.name + '\n';
-    if (domain.registrar) {
-      message += '🏬 <b>注册厂商:</b> ' + domain.registrar + '\n';
-    }
-    message += '⏳ <b>剩余时间:</b> ' + daysLeft + ' 天\n';
-    message += '📅 <b>到期日期:</b> ' + formatDate(domain.expiryDate) + '\n';
-    
-    if (domain.renewLink) {
-      message += '⚠️ <b>点击续期:</b> ' + domain.renewLink + '\n';
-    } else {
-      message += '⚠️ <b>点击续期:</b> 未设置续期链接\n';
-    }
-  });
-  
-  // 发送消息
-  return await sendTelegramMessage(config, message);
+  return '' +
+    '<!DOCTYPE html><html><head><meta charset="utf-8"></head>' +
+    '<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',\'PingFang SC\',\'Hiragino Sans GB\',\'Microsoft YaHei\',sans-serif;">' +
+      '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;padding:24px 12px;">' +
+        '<tr><td align="center">' +
+          '<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e8eaee;">' +
+            '<tr><td style="background-color:#1f2937;padding:28px 32px;">' +
+              '<div style="font-size:22px;font-weight:600;color:#ffffff;letter-spacing:1px;">🌍 ' + escapeHtml(siteName) + '</div>' +
+              '<div style="font-size:13px;color:#9ca3af;margin-top:4px;">单域名通知测试</div>' +
+            '</td></tr>' +
+            '<tr><td style="padding:16px 32px 8px 32px;">' +
+              '<div style="font-size:13px;color:#6b7280;margin-bottom:8px;">这是一条测试通知，用于预览域名' + (isExpired ? '已过期' : '到期') + '提醒的邮件格式：</div>' +
+            '</td></tr>' +
+            '<tr><td style="padding:8px 32px 24px 32px;">' + buildDomainRow(domain, isExpired) + '</td></tr>' +
+            '<tr><td style="background-color:#fafbfc;padding:16px 32px;border-top:1px solid #eef0f3;">' +
+              '<div style="font-size:12px;color:#9ca3af;">本邮件由 ' + escapeHtml(siteName) + ' 自动发送，无需回复。</div>' +
+            '</td></tr>' +
+          '</table>' +
+        '</td></tr>' +
+      '</table>' +
+    '</body></html>';
 }
 
-// 发送合并的域名通知（即将到期和已过期）
-async function sendCombinedDomainsNotification(config, expiringDomains, expiredDomains) {
-  if (expiringDomains.length === 0 && expiredDomains.length === 0) return;
-  
-  let message = '';
-  
-  // 处理即将到期的域名
-  if (expiringDomains.length > 0) {
-    const title = '🚨 <b>域名到期提醒</b> 🚨';
-    const separator = '===================';
-    
-    message += title + '\n' + separator + '\n\n';
-    
-    expiringDomains.forEach((domain, index) => {
-      const expiryDate = new Date(domain.expiryDate);
-      const today = new Date();
-      const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-      
-      if (index > 0) {
-        message += '\n';
-      }
-      
-      message += '🌍 域名: ' + domain.name + '\n';
-      if (domain.registrar) {
-        message += '🏬 注册厂商: ' + domain.registrar + '\n';
-      }
-      message += '⏳ 剩余时间: ' + daysLeft + ' 天\n';
-      message += '📅 到期日期: ' + formatDate(domain.expiryDate) + '\n';
-      
-      if (domain.renewLink) {
-        message += '⚠️ 点击续期: ' + domain.renewLink + '\n';
-      } else {
-        message += '⚠️ 点击续期: 未设置续期链接\n';
-      }
-    });
-  }
-  
-  // 如果两种类型的域名都存在，添加分隔线
-  if (expiringDomains.length > 0 && expiredDomains.length > 0) {
-    message += '\n━━━━━━━━━━━━━━━━\n\n';
-  }
-  
-  // 处理已过期的域名
-  if (expiredDomains.length > 0) {
-    const title = '🚫 <b>域名已过期提醒</b> 🚫';
-    const separator = '=====================';
-    
-    message += title + '\n' + separator + '\n\n';
-    
-    expiredDomains.forEach((domain, index) => {
-      const expiryDate = new Date(domain.expiryDate);
-      const today = new Date();
-      const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-      
-      if (index > 0) {
-        message += '\n';
-      }
-      
-      message += '🌍 域名: ' + domain.name + '\n';
-      if (domain.registrar) {
-        message += '🏬 注册厂商: ' + domain.registrar + '\n';
-      }
-      message += '⏳ 剩余时间: ' + daysLeft + ' 天\n';
-      message += '📅 到期日期: ' + formatDate(domain.expiryDate) + '\n';
-      
-      if (domain.renewLink) {
-        message += '⚠️ 点击续期: ' + domain.renewLink + '\n';
-      } else {
-        message += '⚠️ 点击续期: 未设置续期链接\n';
-      }
-    });
-  }
-  
-  // 发送消息
-  return await sendTelegramMessage(config, message);
-}
-
-// 添加测试单个域名通知的后端函数
+// 测试单个域名的通知
 async function testSingleDomainNotification(id) {
   // 获取域名信息
   const domains = await getDomains();
@@ -5754,56 +5668,30 @@ async function testSingleDomainNotification(id) {
     throw new Error('域名不存在');
   }
   
-  // 获取Telegram配置
-  const telegramConfig = await getTelegramConfigWithToken();
+  // 获取邮件配置
+  const mailConfig = await getMailConfigWithToken();
   
-  if (!telegramConfig.enabled) {
-    throw new Error('Telegram通知未启用');
+  if (!mailConfig.enabled) {
+    throw new Error('邮件通知未启用');
   }
   
-  if (!telegramConfig.botToken && typeof TG_TOKEN === 'undefined') {
-    throw new Error('未配置Telegram机器人Token');
+  if (!mailConfig.apiKey) {
+    throw new Error('未配置 MAIL_API_KEY 环境变量');
   }
   
-  if (!telegramConfig.chatId && typeof TG_ID === 'undefined') {
-    throw new Error('未配置Telegram聊天ID');
+  if (!mailConfig.mailTo) {
+    throw new Error('未配置 MAIL_TO 环境变量');
   }
   
-  // 构建测试消息
+  // 构建测试邮件
   const expiryDate = new Date(domain.expiryDate);
   const today = new Date();
   const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
   const isExpired = daysLeft <= 0;
   
-  let title = isExpired ? 
-    '🚫 <b>域名已过期测试通知</b> 🚫' : 
-    '🚨 <b>域名到期测试通知</b> 🚨';
-  
-  // 根据不同通知类型使用不同长度的分隔线
-  // 域名到期测试通知使用23个字符，域名已过期测试通知使用25个字符
-  const separator = isExpired ? 
-    '=========================' : 
-        '=======================';
-  
-  let message = title + '\n' + separator + '\n\n';
-  message += '这是一条测试通知，用于预览域名' + (isExpired ? '已过期' : '到期') + '提醒的格式：\n\n';
-
-  message += '🌍 <b>域名:</b> ' + domain.name + '\n';
-  if (domain.registrar) {
-    message += '🏬 <b>注册厂商:</b> ' + domain.registrar + '\n';
-  }
-  message += '⏳ <b>剩余时间:</b> ' + daysLeft + ' 天\n';
-  message += '📅 <b>到期日期:</b> ' + formatDate(domain.expiryDate) + '\n';
-  
-  if (domain.renewLink) {
-    message += '⚠️ <b>点击续期:</b> ' + domain.renewLink + '\n';
-  } else {
-    message += '⚠️ <b>点击续期:</b> 未设置续期链接\n';
-  }
-  
-  // 发送测试消息
-  const result = await sendTelegramMessage(telegramConfig, message);
-  return { success: true, message: '测试通知已发送' };
+  const html = buildSingleDomainTestHtml(domain, isExpired);
+  await sendMail(mailConfig, '【域名到期提醒】测试通知：' + domain.name, html);
+  return { success: true, message: '测试邮件已发送' };
 }
 
 // ================================
@@ -6263,14 +6151,19 @@ function getSetupHTML() {
                             <td>https://example.com/bg.jpg</td>
                         </tr>
                         <tr>
-                            <td><code>TG_TOKEN</code></td>
-                            <td>Telegram Bot Token（用于到期通知）</td>
-                            <td>1234567890:ABC...</td>
+                            <td><code>MAIL_API_KEY</code></td>
+                            <td>Resend API Key（用于发送到期通知邮件，必填）</td>
+                            <td>re_xxxxxxxx</td>
                         </tr>
                         <tr>
-                            <td><code>TG_ID</code></td>
-                            <td>Telegram Chat ID</td>
-                            <td>123456789</td>
+                            <td><code>MAIL_TO</code></td>
+                            <td>收件人邮箱（接收到期提醒，必填）</td>
+                            <td>you@example.com</td>
+                        </tr>
+                        <tr>
+                            <td><code>MAIL_FROM</code></td>
+                            <td>发件人邮箱（可选，未配置默认使用 onboarding@resend.dev；建议验证域名后换成自己的）</td>
+                            <td>alert@yourdomain.com</td>
                         </tr>
                         <tr>
                             <td><code>WHOISJSON_API_KEY</code></td>
