@@ -3296,14 +3296,14 @@ const getHTMLContent = (title) => `
                 '</div>' +
                         '<div class="domain-status">' +
                         '<span class="badge bg-' + statusBadge + '">' + statusText + '</span>' +
-                        '<button class="btn btn-sm btn-link toggle-details collapsed" data-bs-toggle="collapse" data-bs-target="#details-' + domain.id + '" aria-expanded="false" aria-controls="details-' + domain.id + '">' +
+                        '<button class="btn btn-sm btn-link toggle-details" data-bs-toggle="collapse" data-bs-target="#details-' + domain.id + '" aria-expanded="true" aria-controls="details-' + domain.id + '">' +
                         '<span class="toggle-icon-container">' +
                         '<i class="iconfont icon-angle-down toggle-icon"></i>' +
                         '</span>' +
                         '</button>' +
                         '</div>' +
                         '</div>' +
-                        '<div class="collapse" id="details-' + domain.id + '">' +
+                        '<div class="collapse show" id="details-' + domain.id + '">' +
                         '<div class="card-body pb-2">' +
                         '<div class="d-flex justify-content-between align-items-start mb-2" style="position: relative;">' +
                         '<div class="flex-grow-1" style="padding-right: 95px; min-width: 0;">' +
@@ -3337,6 +3337,12 @@ const getHTMLContent = (title) => `
                         '</div>' +
                         '</div>';
                     domainCard.innerHTML = cardHtml;
+                    
+                    // 默认展开详情：为内部domain-card添加expanded类，使域名可换行显示
+                    const innerDomainCard = domainCard.querySelector('.domain-card');
+                    if (innerDomainCard) {
+                        innerDomainCard.classList.add('expanded');
+                    }
                     
                     // 将卡片添加到对应的列中
                     targetColumn.appendChild(domainCard);
