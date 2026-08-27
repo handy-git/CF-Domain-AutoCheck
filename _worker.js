@@ -2219,7 +2219,7 @@ const getHTMLContent = (title) => `
         let mailConfig = {};
         let currentSortField = 'suffix'; // 默认排序字段改为域名后缀
         let currentSortOrder = 'asc'; // 默认排序顺序
-        let viewMode = 'auto-collapse'; // 默认查看模式：auto-collapse (自动折叠), expand-all (全部展开), collapse-all (全部折叠)
+        let viewMode = 'expand-all'; // 默认查看模式：expand-all (全部展开), auto-collapse (自动折叠), collapse-all (全部折叠)
         
         // 将天数转换为年月日格式
         function formatDaysToYMD(days) {
@@ -2268,12 +2268,12 @@ const getHTMLContent = (title) => `
                     .catch(error => showAlert('danger', '数据加载失败: ' + error.message));
             }, 300);
             
-            // 设置初始视图模式为全部折叠
+            // 设置初始视图模式为全部展开（与卡片默认展开状态保持一致）
             setTimeout(() => {
-                const collapseAllButton = document.querySelector('.view-option[data-view="collapse-all"]');
-                if (collapseAllButton) {
-                    collapseAllButton.classList.remove('btn-outline-info');
-                    collapseAllButton.classList.add('btn-info');
+                const expandAllButton = document.querySelector('.view-option[data-view="expand-all"]');
+                if (expandAllButton) {
+                    expandAllButton.classList.remove('btn-outline-info');
+                    expandAllButton.classList.add('btn-info');
                 }
             }, 500); // 延迟执行确保DOM已经加载完成
         });
