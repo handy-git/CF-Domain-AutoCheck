@@ -56,8 +56,9 @@
 ## 🚀简易部署流程，若需要详细流程，请移步👉[Faiz博客](https://blog.faiz.nyc.mn/2025/07/26/Domain-AutoCheck%E5%9F%9F%E5%90%8D%E5%88%B0%E6%9C%9F%E7%9B%91%E6%8E%A7/)
 **方式一：Git 仓库自动部署（推荐）**——Cloudflare Workers 连接 GitHub 仓库（Workers Builds），部署命令 `npx wrangler deploy`，配置读取仓库根目录的 `wrangler.jsonc`：
 
-1. 创建一个KV，名字可以随便取，并把它的命名空间ID填入 `wrangler.jsonc` 的 `kv_namespaces[].id`（替换 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`）
+1. 创建一个KV，名字可以随便取，并把它的命名空间ID填入 `wrangler.jsonc` 的 `kv_namespaces[].id`（替换仓库中原有的 ID）
 2. 绑定自定义域名、设定环境变量（在 Worker 的 设置→变量 中配置，见下方变量表）——`wrangler.jsonc` 已内置每周一北京时间 10:00 的 cron 触发器，无需再手动添加
+   > 💡 环境变量建议添加时勾选 **加密（Secret）** 类型：`wrangler deploy` 每次部署会把配置里未声明的**纯文本**变量清空（配置已开启 `keep_vars` 保留面板变量，但加密类型的密钥最稳妥，且不会被部署覆盖）
 3. 每次推送代码即自动重新部署
 
 **方式二：手动部署**——创建workers，粘贴代码
