@@ -12,3 +12,6 @@ Thumbs.db
 # 本地测试/临时文件
 *.log
 tmp/
+
+# Wrangler 本地状态
+.wrangler/

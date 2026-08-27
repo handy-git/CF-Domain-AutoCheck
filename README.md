@@ -54,7 +54,13 @@
 | 剩余天数大于等于周期的30% | 🟢正常     |
 
 ## 🚀简易部署流程，若需要详细流程，请移步👉[Faiz博客](https://blog.faiz.nyc.mn/2025/07/26/Domain-AutoCheck%E5%9F%9F%E5%90%8D%E5%88%B0%E6%9C%9F%E7%9B%91%E6%8E%A7/)
-1. 创建workers，粘贴代码
+**方式一：Git 仓库自动部署（推荐）**——Cloudflare Workers 连接 GitHub 仓库（Workers Builds），部署命令 `npx wrangler deploy`，配置读取仓库根目录的 `wrangler.jsonc`：
+
+1. 创建一个KV，名字可以随便取，并把它的命名空间ID填入 `wrangler.jsonc` 的 `kv_namespaces[].id`（替换 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`）
+2. 绑定自定义域名、设定环境变量（在 Worker 的 设置→变量 中配置，见下方变量表）——`wrangler.jsonc` 已内置每周一北京时间 10:00 的 cron 触发器，无需再手动添加
+3. 每次推送代码即自动重新部署
+
+**方式二：手动部署**——创建workers，粘贴代码
 2. 创建一个KV，名字可以随便取
 3. 绑定KV，变量名称：`DOMAIN_MONITOR`，注意大写，怕填错就复制粘贴，KV命名空间就下拉菜单选择刚才创建的KV名
 4. 绑定自定义域名
